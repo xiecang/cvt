@@ -262,6 +262,9 @@ export interface GRPCNetwork {
     'grpc-service-name'?: string
     'grpc-user-agent'?: string
     'ping-interval'?: number
+    'max-connections'?: number
+    'min-streams'?: number
+    'max-streams'?: number
   }
 }
 
@@ -291,8 +294,33 @@ export interface XHTTPNetwork {
     headers?: Record<string, string>
     'no-grpc-header'?: boolean
     'x-padding-bytes'?: string
+    'x-padding-obfs-mode'?: boolean
+    'x-padding-key'?: string
+    'x-padding-header'?: string
+    'x-padding-placement'?: string
+    'x-padding-method'?: string
+    'uplink-http-method'?: string
+    'session-placement'?: string
+    'session-key'?: string
+    'seq-placement'?: string
+    'seq-key'?: string
+    'uplink-data-placement'?: string
+    'uplink-data-key'?: string
+    'uplink-chunk-size'?: string
+    'sc-max-each-post-bytes'?: string
+    'sc-min-posts-interval-ms'?: string
+    'reuse-settings'?: XHTTPReuseSettings
     'download-settings'?: XHTTPDownloadSettings
   }
+}
+
+export type XHTTPReuseSettings = {
+  'max-connections'?: string
+  'max-concurrency'?: string
+  'c-max-reuse-times'?: string
+  'h-max-request-times'?: string
+  'h-max-reusable-secs'?: string
+  'h-keep-alive-period'?: number
 }
 
 export type XHTTPDownloadSettings =
@@ -302,6 +330,22 @@ export type XHTTPDownloadSettings =
     headers?: Record<string, string>
     'no-grpc-header'?: boolean
     'x-padding-bytes'?: string
+    'x-padding-obfs-mode'?: boolean
+    'x-padding-key'?: string
+    'x-padding-header'?: string
+    'x-padding-placement'?: string
+    'x-padding-method'?: string
+    'uplink-http-method'?: string
+    'session-placement'?: string
+    'session-key'?: string
+    'seq-placement'?: string
+    'seq-key'?: string
+    'uplink-data-placement'?: string
+    'uplink-data-key'?: string
+    'uplink-chunk-size'?: string
+    'sc-max-each-post-bytes'?: string
+    'sc-min-posts-interval-ms'?: string
+    'reuse-settings'?: XHTTPReuseSettings
     server?: string
     port?: number
     tls?: boolean
@@ -386,7 +430,7 @@ interface Hysteria2Base extends ProxyBase {
   port?: number
   ports?: string
   password: string
-  'hop-interval'?: number
+  'hop-interval'?: string
   up?: string
   down?: string
   obfs?: string
@@ -403,6 +447,7 @@ interface Hysteria2Base extends ProxyBase {
   'max-stream-receive-window'?: number
   'initial-connection-receive-window'?: number
   'max-connection-receive-window'?: number
+  'bbr-profile'?: string
 }
 
 export type Hysteria2 = Hysteria2Base & PortOrPorts & Option<ECH>
@@ -415,6 +460,7 @@ export interface TUICBase extends ProxyBase {
   password?: string
   ip?: string
   'congestion-controller'?: string
+  'bbr-profile'?: string
   'udp-relay-mode'?: string
   sni?: string
   fingerprint?: string
@@ -556,10 +602,13 @@ export interface Masque extends ProxyBase {
   uri?: string
   sni?: string
   'congestion-controller'?: string
+  'bbr-profile'?: string
+  network?: string
   cwnd?: number
   mtu?: number
   'remote-dns-resolve'?: boolean
   dns?: string[]
+  'skip-cert-verify'?: boolean
   udp?: boolean
 }
 
@@ -579,7 +628,11 @@ export interface TrustTunnelBase extends ProxyBase {
   'health-check'?: boolean
   quic?: boolean
   'congestion-controller'?: string
+  'bbr-profile'?: string
   cwnd?: number
+  'max-connections'?: number
+  'min-streams'?: number
+  'max-streams'?: number
 }
 
 export type TrustTunnel = TrustTunnelBase & Option<ECH>

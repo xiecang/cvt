@@ -27,6 +27,7 @@ import type {
   WireGuard,
   XHTTPDownloadSettings,
   XHTTPNetwork,
+  XHTTPReuseSettings,
 } from './types.ts'
 import {
   createPure,
@@ -705,9 +706,30 @@ function networkFrom<S extends readonly NetworkName[]>(
   return {}
 }
 
+function isRecord(o: unknown): o is Record<string, unknown> {
+  return typeof o === 'object' && o !== null
+}
+
+function reuseFrom(ps: { xmux?: unknown }): Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'reuse-settings'> {
+  const x = ps.xmux
+  if (!isRecord(x)) return {}
+  const rs: XHTTPReuseSettings = {
+    ...!!x.maxConnections && { 'max-connections': String(x.maxConnections) },
+    ...!!x.maxConcurrency && { 'max-concurrency': String(x.maxConcurrency) },
+    ...!!x.cMaxReuseTimes && { 'c-max-reuse-times': String(x.cMaxReuseTimes) },
+    ...!!x.hMaxRequestTimes && { 'h-max-request-times': String(x.hMaxRequestTimes) },
+    ...!!x.hMaxReusableSecs && { 'h-max-reusable-secs': String(x.hMaxReusableSecs) },
+    ...!!x.hKeepAlivePeriod && { 'h-keep-alive-period': Number(x.hKeepAlivePeriod) },
+  }
+  return Object.keys(rs).length ? { 'reuse-settings': rs } : {}
+}
+
 function parseXHTTPExtra(
   ps: { extra?: string },
-): Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'no-grpc-header' | 'x-padding-bytes' | 'download-settings'> {
+): Pick<
+  NonNullable<XHTTPNetwork['xhttp-opts']>,
+  'no-grpc-header' | 'x-padding-bytes' | 'reuse-settings' | 'download-settings'
+> {
   if (!ps.extra) return {}
   const j = JSON.parse(ps.extra)
   const ds: XHTTPDownloadSettings = {}
@@ -715,12 +737,34 @@ function parseXHTTPExtra(
     const { xhttpSettings } = j.downloadSettings
     if (xhttpSettings) {
       Object.assign(ds, pickNonEmptyString(xhttpSettings, 'path', 'host'))
+      if (isRecord(xhttpSettings.headers) && Object.keys(xhttpSettings.headers).length) {
+        ds.headers = xhttpSettings.headers
+      }
       if (xhttpSettings.noGrpcHeader) ds['no-grpc-header'] = true
       if (xhttpSettings.xPaddingBytes) ds['x-padding-bytes'] = String(xhttpSettings.xPaddingBytes)
+      if (xhttpSettings.xPaddingObfsMode) ds['x-padding-obfs-mode'] = !!xhttpSettings.xPaddingObfsMode
+      if (xhttpSettings.xPaddingKey) ds['x-padding-key'] = String(xhttpSettings.xPaddingKey)
+      if (xhttpSettings.xPaddingHeader) ds['x-padding-header'] = String(xhttpSettings.xPaddingHeader)
+      if (xhttpSettings.xPaddingPlacement) ds['x-padding-placement'] = String(xhttpSettings.xPaddingPlacement)
+      if (xhttpSettings.xPaddingMethod) ds['x-padding-method'] = String(xhttpSettings.xPaddingMethod)
+      if (xhttpSettings.uplinkHttpMethod) ds['uplink-http-method'] = String(xhttpSettings.uplinkHttpMethod)
+      if (xhttpSettings.sessionPlacement) ds['session-placement'] = String(xhttpSettings.sessionPlacement)
+      if (xhttpSettings.sessionKey) ds['session-key'] = String(xhttpSettings.sessionKey)
+      if (xhttpSettings.seqPlacement) ds['seq-placement'] = String(xhttpSettings.seqPlacement)
+      if (xhttpSettings.seqKey) ds['seq-key'] = String(xhttpSettings.seqKey)
+      if (xhttpSettings.uplinkDataPlacement) ds['uplink-data-placement'] = String(xhttpSettings.uplinkDataPlacement)
+      if (xhttpSettings.uplinkDataKey) ds['uplink-data-key'] = String(xhttpSettings.uplinkDataKey)
+      if (xhttpSettings.uplinkChunkSize) ds['uplink-chunk-size'] = String(xhttpSettings.uplinkChunkSize)
+      if (xhttpSettings.scMaxEachPostBytes) ds['sc-max-each-post-bytes'] = String(xhttpSettings.scMaxEachPostBytes)
+      if (xhttpSettings.scMinPostsIntervalMs) {
+        ds['sc-min-posts-interval-ms'] = String(xhttpSettings.scMinPostsIntervalMs)
+      }
+      if (xhttpSettings.extra) Object.assign(ds, reuseFrom(xhttpSettings.extra))
     }
     if (j.downloadSettings.address) ds.server = String(j.downloadSettings.address)
     if (j.downloadSettings.port) ds.port = Number(j.downloadSettings.port)
-    if (String(j.downloadSettings.security).toLowerCase() === 'tls') {
+    const sec = String(j.downloadSettings.security).toLowerCase()
+    if (sec === 'tls' || sec === 'reality') {
       ds.tls = true
       ds['client-fingerprint'] = DEFAULT_CLIENT_FINGERPRINT
       const { tlsSettings } = j.downloadSettings
@@ -729,12 +773,34 @@ function parseXHTTPExtra(
         if (tlsSettings.fingerprint) ds['client-fingerprint'] = String(tlsSettings.fingerprint)
         if (Array.isArray(tlsSettings.alpn)) ds.alpn = tlsSettings.alpn
       }
+      if (sec === 'reality') {
+        const { realitySettings } = j.downloadSettings
+        if (realitySettings) {
+          Object.assign(ds, realityFrom(realitySettings.publicKey, realitySettings.shortId))
+        }
+      }
       ds['skip-cert-verify'] = DEFAULT_SCV
     }
   }
   return {
     ...j.noGRPCHeaders && { 'no-grpc-header': true },
     ...j.xPaddingBytes && { 'x-padding-bytes': String(j.xPaddingBytes) },
+    ...j.xPaddingObfsMode && { 'x-padding-obfs-mode': true },
+    ...(j.xPaddingKey && { 'x-padding-key': String(j.xPaddingKey) }),
+    ...(j.xPaddingHeader && { 'x-padding-header': String(j.xPaddingHeader) }),
+    ...(j.xPaddingPlacement && { 'x-padding-placement': String(j.xPaddingPlacement) }),
+    ...(j.xPaddingMethod && { 'x-padding-method': String(j.xPaddingMethod) }),
+    ...(j.uplinkHttpMethod && { 'uplink-http-method': String(j.uplinkHttpMethod) }),
+    ...(j.sessionPlacement && { 'session-placement': String(j.sessionPlacement) }),
+    ...(j.sessionKey && { 'session-key': String(j.sessionKey) }),
+    ...(j.seqPlacement && { 'seq-placement': String(j.seqPlacement) }),
+    ...(j.seqKey && { 'seq-key': String(j.seqKey) }),
+    ...(j.uplinkDataPlacement && { 'uplink-data-placement': String(j.uplinkDataPlacement) }),
+    ...(j.uplinkDataKey && { 'uplink-data-key': String(j.uplinkDataKey) }),
+    ...(j.uplinkChunkSize && { 'uplink-chunk-size': String(j.uplinkChunkSize) }),
+    ...(j.scMaxEachPostBytes && { 'sc-max-each-post-bytes': String(j.scMaxEachPostBytes) }),
+    ...(j.scMinPostsIntervalMs && { 'sc-min-posts-interval-ms': String(j.scMinPostsIntervalMs) }),
+    ...reuseFrom(j),
     ...Object.keys(ds).length && { 'download-settings': ds },
   }
 }
@@ -789,13 +855,66 @@ function networkTo(
   }
 }
 
+function reuseTo(o: Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'reuse-settings'>): { xmux?: unknown } {
+  const rs = o['reuse-settings']
+  if (rs) {
+    const xmux = {
+      ...rs['max-connections'] && { maxConnections: rs['max-connections'] },
+      ...rs['max-concurrency'] && { maxConcurrency: rs['max-concurrency'] },
+      ...rs['c-max-reuse-times'] && { cMaxReuseTimes: rs['c-max-reuse-times'] },
+      ...rs['h-max-request-times'] && { hMaxRequestTimes: rs['h-max-request-times'] },
+      ...rs['h-max-reusable-secs'] && { hMaxReusableSecs: rs['h-max-reusable-secs'] },
+      ...rs['h-keep-alive-period'] && { hKeepAlivePeriod: rs['h-keep-alive-period'] },
+    }
+    if (Object.keys(xmux).length) return { xmux }
+  }
+  return {}
+}
+
 function stringifyXHTTPExtra(
-  o: Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'no-grpc-header' | 'x-padding-bytes' | 'download-settings'>,
+  o: Pick<
+    NonNullable<XHTTPNetwork['xhttp-opts']>,
+    | 'no-grpc-header'
+    | 'x-padding-bytes'
+    | 'x-padding-obfs-mode'
+    | 'x-padding-key'
+    | 'x-padding-header'
+    | 'x-padding-placement'
+    | 'x-padding-method'
+    | 'uplink-http-method'
+    | 'session-placement'
+    | 'session-key'
+    | 'seq-placement'
+    | 'seq-key'
+    | 'uplink-data-placement'
+    | 'uplink-data-key'
+    | 'uplink-chunk-size'
+    | 'sc-max-each-post-bytes'
+    | 'sc-min-posts-interval-ms'
+    | 'reuse-settings'
+    | 'download-settings'
+  >,
 ): { extra?: string } {
   const extra: Record<string, unknown> = {}
 
   if (o['no-grpc-header']) extra.noGRPCHeaders = true
   if (o['x-padding-bytes']) extra.xPaddingBytes = o['x-padding-bytes']
+  if (o['x-padding-obfs-mode']) extra.xPaddingObfsMode = true
+  if (o['x-padding-key']) extra.xPaddingKey = o['x-padding-key']
+  if (o['x-padding-header']) extra.xPaddingHeader = o['x-padding-header']
+  if (o['x-padding-placement']) extra.xPaddingPlacement = o['x-padding-placement']
+  if (o['x-padding-method']) extra.xPaddingMethod = o['x-padding-method']
+  if (o['uplink-http-method']) extra.uplinkHttpMethod = o['uplink-http-method']
+  if (o['session-placement']) extra.sessionPlacement = o['session-placement']
+  if (o['session-key']) extra.sessionKey = o['session-key']
+  if (o['seq-placement']) extra.seqPlacement = o['seq-placement']
+  if (o['seq-key']) extra.seqKey = o['seq-key']
+  if (o['uplink-data-placement']) extra.uplinkDataPlacement = o['uplink-data-placement']
+  if (o['uplink-data-key']) extra.uplinkDataKey = o['uplink-data-key']
+  if (o['uplink-chunk-size']) extra.uplinkChunkSize = o['uplink-chunk-size']
+  if (o['sc-max-each-post-bytes']) extra.scMaxEachPostBytes = o['sc-max-each-post-bytes']
+  if (o['sc-min-posts-interval-ms']) extra.scMinPostsIntervalMs = o['sc-min-posts-interval-ms']
+  Object.assign(extra, reuseTo(o))
 
   const ds = o['download-settings']
   if (ds) {
@@ -803,20 +922,44 @@ function stringifyXHTTPExtra(
 
     const xhttpSettings: Record<string, unknown> = {}
     Object.assign(xhttpSettings, pickNonEmptyString(ds, 'path', 'host'))
+    if (ds.headers) xhttpSettings.headers = ds.headers
     if (ds['no-grpc-header']) xhttpSettings.noGrpcHeader = true
     if (ds['x-padding-bytes']) xhttpSettings.xPaddingBytes = ds['x-padding-bytes']
+    if (ds['x-padding-obfs-mode']) xhttpSettings.xPaddingObfsMode = true
+    if (ds['x-padding-key']) xhttpSettings.xPaddingKey = ds['x-padding-key']
+    if (ds['x-padding-header']) xhttpSettings.xPaddingHeader = ds['x-padding-header']
+    if (ds['x-padding-placement']) xhttpSettings.xPaddingPlacement = ds['x-padding-placement']
+    if (ds['x-padding-method']) xhttpSettings.xPaddingMethod = ds['x-padding-method']
+    if (ds['uplink-http-method']) xhttpSettings.uplinkHttpMethod = ds['uplink-http-method']
+    if (ds['session-placement']) xhttpSettings.sessionPlacement = ds['session-placement']
+    if (ds['session-key']) xhttpSettings.sessionKey = ds['session-key']
+    if (ds['seq-placement']) xhttpSettings.seqPlacement = ds['seq-placement']
+    if (ds['seq-key']) xhttpSettings.seqKey = ds['seq-key']
+    if (ds['uplink-data-placement']) xhttpSettings.uplinkDataPlacement = ds['uplink-data-placement']
+    if (ds['uplink-data-key']) xhttpSettings.uplinkDataKey = ds['uplink-data-key']
+    if (ds['uplink-chunk-size']) xhttpSettings.uplinkChunkSize = ds['uplink-chunk-size']
+    if (ds['sc-max-each-post-bytes']) xhttpSettings.scMaxEachPostBytes = ds['sc-max-each-post-bytes']
+    if (ds['sc-min-posts-interval-ms']) xhttpSettings.scMinPostsIntervalMs = ds['sc-min-posts-interval-ms']
+    const xmux = reuseTo(ds)
+    if (Object.keys(xmux).length) xhttpSettings.extra = xmux
     if (Object.keys(xhttpSettings).length) downloadSettings.xhttpSettings = xhttpSettings
 
     if (ds.server) downloadSettings.address = ds.server
     if (ds.port) downloadSettings.port = ds.port
 
     if (ds.tls) {
-      downloadSettings.security = 'tls'
+      downloadSettings.security = ds['reality-opts'] ? 'reality' : 'tls'
       const tlsSettings: Record<string, unknown> = {}
       if (ds.servername) tlsSettings.serverName = ds.servername
       if (ds['client-fingerprint']) tlsSettings.fingerprint = ds['client-fingerprint']
       if (ds.alpn) tlsSettings.alpn = ds.alpn
       if (Object.keys(tlsSettings).length) downloadSettings.tlsSettings = tlsSettings
+      if (ds['reality-opts']) {
+        downloadSettings.realitySettings = {
+          publicKey: ds['reality-opts']['public-key'],
+          shortId: ds['reality-opts']['short-id'],
+        }
+      }
     }
 
     if (Object.keys(downloadSettings).length) extra.downloadSettings = downloadSettings

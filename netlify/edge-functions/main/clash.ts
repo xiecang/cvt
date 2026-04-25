@@ -33,6 +33,7 @@ import type {
   WireGuard,
   XHTTPDownloadSettings,
   XHTTPNetwork,
+  XHTTPReuseSettings,
 } from './types.ts'
 import { createPure, parseYAML, pickNonEmptyString, pickNumber, pickTrue } from './utils.ts'
 import { requireOldClashSupport } from './proxy_utils.ts'
@@ -229,9 +230,9 @@ const FROM_CLASH = createPure({
     return {
       ...baseFromForPorts(o),
       password: String(o.password || o.auth),
-      ...pickNumber(o, 'hop-interval'),
       ...pickNonEmptyString(
         o,
+        'hop-interval',
         'up',
         'down',
         'obfs',
@@ -253,6 +254,7 @@ const FROM_CLASH = createPure({
         'initial-connection-receive-window',
         'max-connection-receive-window',
       ),
+      ...pickNonEmptyString(o, 'bbr-profile'),
     }
   },
   tuic(o: unknown): TUIC {
@@ -266,6 +268,7 @@ const FROM_CLASH = createPure({
         'password',
         'ip',
         'congestion-controller',
+        'bbr-profile',
         'udp-relay-mode',
         'sni',
         'fingerprint',
@@ -368,10 +371,11 @@ const FROM_CLASH = createPure({
       ...baseFrom(o),
       'private-key': String(o['private-key']),
       'public-key': String(o['public-key']),
-      ...pickNonEmptyString(o, 'ip', 'ipv6', 'uri', 'sni', 'congestion-controller'),
+      ...pickNonEmptyString(o, 'ip', 'ipv6', 'uri', 'sni', 'congestion-controller', 'bbr-profile', 'network'),
       ...pickNumber(o, 'cwnd', 'mtu'),
       ...pickTrue(o, 'remote-dns-resolve'),
       ...Array.isArray(o.dns) && o.dns.length && { dns: o.dns as string[] },
+      ...scvFrom(o),
       ...udpFrom(o),
     }
   },
@@ -394,8 +398,8 @@ const FROM_CLASH = createPure({
       ...scvFrom(o),
       ...udpFrom(o),
       ...pickTrue(o, 'health-check', 'quic'),
-      ...pickNonEmptyString(o, 'congestion-controller'),
-      ...pickNumber(o, 'cwnd'),
+      ...pickNonEmptyString(o, 'congestion-controller', 'bbr-profile'),
+      ...pickNumber(o, 'cwnd', 'max-connections', 'min-streams', 'max-streams'),
     }
   },
 })
@@ -634,7 +638,7 @@ function networkFrom<S extends readonly NetworkName[]>(
             'grpc-service-name',
             ['grpc-user-agent', DEFAULT_GRPC_USER_AGENT],
           ),
-          ...pickNumber(opts, 'ping-interval'),
+          ...pickNumber(opts, 'ping-interval', 'max-connections', 'min-streams', 'max-streams'),
         },
       } as NetworkResult<S>
     }
@@ -673,6 +677,25 @@ function networkFrom<S extends readonly NetworkName[]>(
           ...isRecord(opts1.headers) && { headers: opts1.headers as Record<string, string> },
           ...pickTrue(opts1, 'no-grpc-header'),
           ...pickNonEmptyString(opts1, 'x-padding-bytes'),
+          ...pickTrue(opts1, 'x-padding-obfs-mode'),
+          ...pickNonEmptyString(
+            opts1,
+            'x-padding-key',
+            'x-padding-header',
+            'x-padding-placement',
+            'x-padding-method',
+            'uplink-http-method',
+            'session-placement',
+            'session-key',
+            'seq-placement',
+            'seq-key',
+            'uplink-data-placement',
+            'uplink-data-key',
+            'uplink-chunk-size',
+            'sc-max-each-post-bytes',
+            'sc-min-posts-interval-ms',
+          ),
+          ...parseReuseSettings(opts1),
           ...parseDownloadSettings(opts1),
         }
         : {}
@@ -685,6 +708,25 @@ function networkFrom<S extends readonly NetworkName[]>(
   return {}
 }
 
+function parseReuseSettings(
+  o: Record<string, unknown>,
+): Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'reuse-settings'> {
+  const r = o['reuse-settings']
+  if (!isRecord(r)) return {}
+  const rs: XHTTPReuseSettings = {
+    ...pickNonEmptyString(
+      r,
+      'max-connections',
+      'max-concurrency',
+      'c-max-reuse-times',
+      'h-max-request-times',
+      'h-max-reusable-secs',
+    ),
+    ...pickNumber(r, 'h-keep-alive-period'),
+  }
+  return Object.keys(rs).length ? { 'reuse-settings': rs } : {}
+}
+
 function parseDownloadSettings(
   o: Record<string, unknown>,
 ): Pick<NonNullable<XHTTPNetwork['xhttp-opts']>, 'download-settings'> {
@@ -694,7 +736,27 @@ function parseDownloadSettings(
     ...pickNonEmptyString(d, 'path', 'host'),
     ...isRecord(d.headers) && { headers: d.headers as Record<string, string> },
     ...pickTrue(d, 'no-grpc-header'),
-    ...pickNonEmptyString(d, 'x-padding-bytes', 'server'),
+    ...pickNonEmptyString(d, 'x-padding-bytes'),
+    ...pickTrue(d, 'x-padding-obfs-mode'),
+    ...pickNonEmptyString(
+      d,
+      'x-padding-key',
+      'x-padding-header',
+      'x-padding-placement',
+      'x-padding-method',
+      'uplink-http-method',
+      'session-placement',
+      'session-key',
+      'seq-placement',
+      'seq-key',
+      'uplink-data-placement',
+      'uplink-data-key',
+      'uplink-chunk-size',
+      'sc-max-each-post-bytes',
+      'sc-min-posts-interval-ms',
+    ),
+    ...parseReuseSettings(d),
+    ...pickNonEmptyString(d, 'server'),
     ...pickNumber(d, 'port'),
     ...d.tls
       ? {
